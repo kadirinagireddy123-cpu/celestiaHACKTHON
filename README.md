@@ -143,3 +143,4 @@ Never commit `.env` or any sensitive API keys to GitHub. Drishti includes a prec
 ## 📜 License
 
 MIT License. Developed for **CELESTIA Hackathon** by **Team Tech Trojan**.
+
