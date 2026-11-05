@@ -1,0 +1,13 @@
+{
+  "python.defaultInterpreterPath": "C:\\Users\\kadir\\AppData\\Local\\Python\\bin\\python.exe",
+  "python.analysis.extraPaths": [
+    "drishti-build/backend"
+  ],
+  "python.analysis.include": [
+    "drishti-build/backend"
+  ],
+  "pylance.extraPaths": [
+    "drishti-build/backend"
+  ]
+}
+

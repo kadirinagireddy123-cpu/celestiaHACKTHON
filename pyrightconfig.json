@@ -1,0 +1,12 @@
+{
+  "pythonVersion": "3.14",
+  "pythonPath": "C:\\Users\\kadir\\AppData\\Local\\Python\\bin\\python.exe",
+  "extraPaths": [
+    "drishti-build/backend",
+    "C:\\Users\\kadir\\AppData\\Local\\Python\\pythoncore-3.14-64\\Lib\\site-packages"
+  ],
+  "typeCheckingMode": "basic",
+  "reportMissingModuleSource": "none",
+  "reportMissingImports": "none",
+  "reportUndefinedVariable": "warning"
+}

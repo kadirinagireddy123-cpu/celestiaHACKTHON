@@ -38,8 +38,9 @@ htmlcov/
 .nox/
 
 # IDE & Editor files
-.vscode/
 .idea/
+.vscode/*
+!.vscode/settings.json
 *.swp
 *.swo
 *~
