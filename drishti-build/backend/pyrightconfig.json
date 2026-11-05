@@ -1,0 +1,16 @@
+{
+  "pythonVersion": "3.14",
+  "pythonPlatform": "Windows",
+  "pythonPath": "C:\\Users\\kadir\\AppData\\Local\\Python\\bin\\python.exe",
+  "venvPath": ".",
+  "include": [
+    "."
+  ],
+  "extraPaths": [
+    ".",
+    "C:\\Users\\kadir\\AppData\\Local\\Python\\pythoncore-3.14-64\\Lib\\site-packages"
+  ],
+  "typeCheckingMode": "basic",
+  "reportMissingModuleSource": "none",
+  "reportMissingImports": "none"
+}
