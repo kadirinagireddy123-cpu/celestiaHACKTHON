@@ -7,3 +7,4 @@ if str(_BACKEND) not in sys.path:
     sys.path.insert(0, str(_BACKEND))
 
 from src.app import app
+

@@ -8,13 +8,19 @@ if str(_BACKEND_DIR) not in sys.path:
     sys.path.insert(0, str(_BACKEND_DIR))
 
 from src.app import app
+from src.config.env import config
 from src.config.languages import SUPPORTED_LANGUAGES, get_language_metadata
 
 SAMPLE_BASE64_IMAGE = "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7"
 
 class DrishtiApiTests(unittest.TestCase):
     def setUp(self):
+        self._orig_key = config.GEMINI_API_KEY
+        config.GEMINI_API_KEY = ""
         self.client = TestClient(app)
+
+    def tearDown(self):
+        config.GEMINI_API_KEY = self._orig_key
 
     def test_health_check(self):
         response = self.client.get("/health")
@@ -82,6 +88,57 @@ class DrishtiApiTests(unittest.TestCase):
         self.assertEqual(len(first_box), 4)
         for coord in first_box:
             self.assertTrue(0 <= coord <= 1000)
+
+    def test_vision_assist_sharp_hazard_detection(self):
+        response = self.client.post(
+            "/vision-assist",
+            json={
+                "image": SAMPLE_BASE64_IMAGE,
+                "mode": "safety",
+                "language": "en",
+                "userPrompt": "Is there a sharp knife on the bed?",
+            },
+        )
+        self.assertEqual(response.status_code, 200)
+        data = response.json()["data"]
+        self.assertTrue(data["sharpHazardDetected"])
+        self.assertEqual(data["hazardSeverity"], "high")
+        self.assertIsNotNone(data["surfaceAlert"])
+        self.assertTrue(any(o.get("isSharpHazard") for o in data["detectedObjects"]))
+
+    def test_vision_assist_chemical_hazard_detection(self):
+        response = self.client.post(
+            "/vision-assist",
+            json={
+                "image": SAMPLE_BASE64_IMAGE,
+                "mode": "safety",
+                "language": "en",
+                "userPrompt": "Is there an acid cleaner or bleaching powder spill on the floor?",
+            },
+        )
+        self.assertEqual(response.status_code, 200)
+        data = response.json()["data"]
+        self.assertTrue(data["chemicalHazardDetected"])
+        self.assertEqual(data["hazardSeverity"], "high")
+        self.assertIn("chemical", data["hazardCategories"])
+        self.assertTrue(any(o.get("isChemicalHazard") for o in data["detectedObjects"]))
+
+    def test_vision_assist_biological_hazard_detection(self):
+        response = self.client.post(
+            "/vision-assist",
+            json={
+                "image": SAMPLE_BASE64_IMAGE,
+                "mode": "safety",
+                "language": "en",
+                "userPrompt": "Are there any insects, spiders, or fungus mold on the bed?",
+            },
+        )
+        self.assertEqual(response.status_code, 200)
+        data = response.json()["data"]
+        self.assertTrue(data["biologicalHazardDetected"])
+        self.assertEqual(data["hazardSeverity"], "high")
+        self.assertIn("biological", data["hazardCategories"])
+        self.assertTrue(any(o.get("isBiologicalHazard") for o in data["detectedObjects"]))
 
     def test_vision_assist_multilingual_hindi_kannada(self):
         # Hindi

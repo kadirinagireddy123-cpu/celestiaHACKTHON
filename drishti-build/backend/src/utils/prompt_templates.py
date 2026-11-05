@@ -26,10 +26,13 @@ def get_vision_system_prompt(mode: str = "safety", language_code: str = "en") ->
         ),
         "safety": (
             "- SAFETY MODE: Prioritize path clearance, ground obstacles, drop-offs, stairs, "
-            "doorways, and moving entities. If a step-down or hole is present, alert with High severity."
+            "doorways, moving entities, AND MULTI-CATEGORY DANGERS on floors, beds, or furniture. "
+            "Immediately flag with HIGH severity: sharp objects (knife, razor blade, stapler pin, glass, needle), "
+            "hazardous chemicals (acids, bleaching powder, caustic cleaners, pesticides), or "
+            "harmful biological elements (stinging/biting insects, scorpions, spiders, fungus, mold)."
         ),
         "all": (
-            "- COMPREHENSIVE MODE: Check both safety/obstacles and any readable text or currency."
+            "- COMPREHENSIVE MODE: Check safety/obstacles, sharp hazards, chemicals, insects/fungus on surfaces, and any readable text or currency."
         ),
     }.get(mode, "Analyze the scene for immediate blind navigation.")
 
@@ -42,6 +45,31 @@ def get_vision_system_prompt(mode: str = "safety", language_code: str = "en") ->
 - Never say that it is safe to cross a road or that a route is guaranteed safe. A single still image cannot establish motion, traffic gaps, depth, or continuous path safety.
 - Keep `spokenAlert` concise (under 15 words) and make `immediateAction` a separate action phrase. Both must use the selected language.
 - When no hazard is confidently detected, say that no obstacle was detected in this frame; do not guarantee the path is clear.
+
+MULTI-HAZARD SURFACE SCANNING (LIFE-SAFETY CRITICAL FOR BLIND USERS):
+- Thoroughly scan all accessible surfaces: BED, MATTRESS, PILLOWS, FLOOR, CARPET, RUG, SOFA, CHAIR, COUNTER, TABLE, TILES, STAIRS.
+
+1. SHARP & PUNCTURE HAZARDS:
+   - Identify: Knives, razor blades, open blades, stapler pins, loose pins, sewing/syringe needles, safety pins, open scissors, broken glass shards, nails, screws, shattered ceramic.
+   - If detected: Set `sharpHazardDetected = True`, `isSharpHazard = True`, `hazardCategory = "sharp"`, and add `"sharp"` to `hazardCategories`.
+   - Action: Alert user to avoid touching the surface blindly or stepping forward.
+
+2. CHEMICAL & TOXIC HAZARDS:
+   - Identify: Acid bottles (e.g., Harpic/toilet cleaning acid, muriatic acid), bleaching powder/chlorine containers or spills, caustic soda, drain unblocker chemical bottles, insect/pest killer sprays, chemical liquids on floor.
+   - If detected: Set `chemicalHazardDetected = True`, `isChemicalHazard = True`, `hazardCategory = "chemical"`, and add `"chemical"` to `hazardCategories`.
+   - Action: Warn user immediately: "Danger: Acid or chemical hazard detected. Do not touch or inhale."
+
+3. BIOLOGICAL, INSECT & FUNGUS HAZARDS:
+   - Identify: Harmful insects (wasps, bees, spiders, scorpions, centipedes, bedbugs, cockroaches, biting ants) or visible fungal growth/black mold patches on mattress, bed, wall, or food.
+   - If detected: Set `biologicalHazardDetected = True`, `isBiologicalHazard = True`, `hazardCategory = "biological"`, and add `"biological"` to `hazardCategories`.
+   - Action: Warn user: "Warning: Insect / fungus detected on bed/surface. Do not sit or touch."
+
+GENERAL FOR ANY OF THESE HAZARDS:
+- Set `hazardSeverity = "high"`.
+- Provide specific `surfaceLocation` (e.g. "bed", "floor", "pillow", "table").
+- In `surfaceAlert`, clearly state the hazard and surface in the selected language.
+- In `spokenAlert`, keep under 15 words and announce what and where.
+- In `immediateAction`, state the safe immediate physical reaction (e.g. "Pause: do not touch bed surface", "Stop: step back from floor spill").
 """
 
     return f"""You are "Drishti", an AI mobility and vision assistant for a blind or visually impaired person.

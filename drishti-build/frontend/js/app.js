@@ -217,7 +217,21 @@ function drawBoxes(res) {
     ctx.fillStyle = color; ctx.fillRect(x, ly, tw, th);
     ctx.fillStyle = '#0b0f14'; ctx.textBaseline = 'middle'; ctx.fillText(t, x + 5 * d, ly + th / 2);
   };
-  res.detectedObjects?.forEach((o) => draw(o.box2d, SEV_COLOR[o.severity] || SEV_COLOR.low, `${o.label} · ${o.clockPosition} · ${o.distanceMeters}m`));
+  res.detectedObjects?.forEach((o) => {
+    const group = detectionGroup(o.label);
+    const isSharp = o.isSharpHazard || o.hazardCategory === 'sharp' || group === 'Sharp Hazards';
+    const isChem = o.isChemicalHazard || o.hazardCategory === 'chemical' || group === 'Chemical Hazards';
+    const isBio = o.isBiologicalHazard || o.hazardCategory === 'biological' || group === 'Biological Hazards';
+
+    let color = SEV_COLOR[o.severity] || SEV_COLOR.low;
+    let prefix = '';
+    if (isSharp) { color = '#ef4444'; prefix = '⚠️ SHARP: '; }
+    else if (isChem) { color = '#ea580c'; prefix = '☣️ CHEMICAL: '; }
+    else if (isBio) { color = '#a855f7'; prefix = '🪲 BIO/PEST: '; }
+
+    const surface = o.surfaceLocation ? ` [${o.surfaceLocation}]` : '';
+    draw(o.box2d, color, `${prefix}${o.label}${surface} · ${o.clockPosition} · ${o.distanceMeters}m`);
+  });
   res.textReadings?.forEach((t) => draw(t.box2d, '#60a5fa', t.text));
 }
 
@@ -271,8 +285,18 @@ function announce(d, fromAuto) {
   const actionText = d.immediateAction || '';
   const text = actionText && !alertText.toLowerCase().includes(actionText.toLowerCase())
     ? `${alertText}. ${actionText}` : alertText;
-  const hazard = d.hazardSeverity === 'high' || d.hazardSeverity === 'medium';
-  if (state.prefs.vibrate && navigator.vibrate) navigator.vibrate(d.hazardSeverity === 'high' ? [300, 100, 300, 100, 300] : d.hazardSeverity === 'medium' ? [200, 100, 200] : 0);
+  const isSharp = d.sharpHazardDetected || d.detectedObjects?.some(o => o.isSharpHazard || detectionGroup(o.label) === 'Sharp Hazards');
+  const isChem = d.chemicalHazardDetected || d.detectedObjects?.some(o => o.isChemicalHazard || detectionGroup(o.label) === 'Chemical Hazards');
+  const isBio = d.biologicalHazardDetected || d.detectedObjects?.some(o => o.isBiologicalHazard || detectionGroup(o.label) === 'Biological Hazards');
+  const isCriticalHazard = isSharp || isChem || isBio;
+  const hazard = d.hazardSeverity === 'high' || d.hazardSeverity === 'medium' || isCriticalHazard;
+  if (state.prefs.vibrate && navigator.vibrate) {
+    if (isSharp) navigator.vibrate([400, 100, 400, 100, 400]);
+    else if (isChem) navigator.vibrate([600, 150, 600, 150]);
+    else if (isBio) navigator.vibrate([300, 100, 300, 100, 300]);
+    else if (d.hazardSeverity === 'high') navigator.vibrate([300, 100, 300, 100, 300]);
+    else if (d.hazardSeverity === 'medium') navigator.vibrate([200, 100, 200]);
+  }
   if (fromAuto) {
     if (state.prefs.quietClear && d.isPathClear && !hazard) return;
     const dup = text === state.lastSpoken.text && Date.now() - state.lastSpoken.at < 12000;
@@ -291,14 +315,26 @@ function announce(d, fromAuto) {
 
 function detectionGroup(label) {
   const s = String(label || '').toLowerCase();
+  if (/\b(knife|knives|blade|blades|razor|scissor|scissors|needle|needles|pin|pins|nail|nails|screw|screws|glass|shard|shards|ceramic|cutter|scalpel|sharp|dagger|staple|stapler)\b/.test(s)) return 'Sharp Hazards';
+  if (/\b(acid|acids|bleach|bleaching|chemical|chemicals|poison|toxic|corrosive|caustic|detergent|cleaner|pesticide|insecticide|solvent|spill)\b/.test(s)) return 'Chemical Hazards';
+  if (/\b(insect|insects|spider|spiders|scorpion|scorpions|wasp|wasps|bee|bees|centipede|centipedes|bedbug|bedbugs|cockroach|cockroaches|ant|ants|bug|bugs|fungus|mold|mould|spore|spores)\b/.test(s)) return 'Biological Hazards';
   if (/\b(car|truck|bus|van|motorcycle|motorbike|scooter|bike|bicycle|auto|vehicle|train)\b/.test(s)) return 'Vehicles';
   if (/\b(person|people|pedestrian|man|woman|child|crowd|human)\b/.test(s)) return 'People';
   if (/\b(dog|cat|cow|goat|horse|animal|bird|monkey|cattle|sheep)\b/.test(s)) return 'Animals';
   return 'Obstacles';
 }
 function updateDetectionSummary(objects = []) {
-  const groups = { Obstacles: 0, Vehicles: 0, People: 0, Animals: 0 };
-  objects.forEach(o => { groups[detectionGroup(o.label)]++; });
+  const groups = { 'Sharp Hazards': 0, 'Chemical Hazards': 0, 'Biological Hazards': 0, Obstacles: 0, Vehicles: 0, People: 0, Animals: 0 };
+  objects.forEach(o => {
+    let grp = 'Obstacles';
+    if (o.isSharpHazard || o.hazardCategory === 'sharp') grp = 'Sharp Hazards';
+    else if (o.isChemicalHazard || o.hazardCategory === 'chemical') grp = 'Chemical Hazards';
+    else if (o.isBiologicalHazard || o.hazardCategory === 'biological') grp = 'Biological Hazards';
+    else grp = detectionGroup(o.label);
+
+    if (groups[grp] !== undefined) groups[grp]++;
+    else groups.Obstacles++;
+  });
   const summary = $('detectionSummary');
   if (!summary) return;
   summary.replaceChildren();
@@ -307,7 +343,13 @@ function updateDetectionSummary(objects = []) {
     summary.append(el('span', { text: 'No objects reported in the latest scan' }));
     return;
   }
-  entries.forEach(([name, count]) => summary.append(el('span', { text: `${name}: ${count}` })));
+  entries.forEach(([name, count]) => {
+    let cls = '';
+    if (name === 'Sharp Hazards') cls = 'tag-sharp';
+    else if (name === 'Chemical Hazards') cls = 'tag-chemical';
+    else if (name === 'Biological Hazards') cls = 'tag-biological';
+    summary.append(el('span', { class: cls, text: `${name}: ${count}` }));
+  });
 }
 function updateWalkState() {
   const pill = $('walkState'), pause = $('btnWalkPause'), end = $('btnWalkEnd'), start = $('btnWalkStart');
@@ -354,18 +396,77 @@ function endGuidedWalk() {
 
 function renderResult(res) {
   const d = res.data, box = $('result');
-  const sev = d.hazardSeverity || 'none';
+  const isSharp = d.sharpHazardDetected || d.detectedObjects?.some(o => o.isSharpHazard || o.hazardCategory === 'sharp' || detectionGroup(o.label) === 'Sharp Hazards');
+  const isChem = d.chemicalHazardDetected || d.detectedObjects?.some(o => o.isChemicalHazard || o.hazardCategory === 'chemical' || detectionGroup(o.label) === 'Chemical Hazards');
+  const isBio = d.biologicalHazardDetected || d.detectedObjects?.some(o => o.isBiologicalHazard || o.hazardCategory === 'biological' || detectionGroup(o.label) === 'Biological Hazards');
+  const isCritical = isSharp || isChem || isBio;
+  const sev = isCritical ? 'high' : (d.hazardSeverity || 'none');
   box.className = 'result sev-' + sev;
   const kids = [];
+
+  if (isSharp) {
+    kids.push(el('div', { class: 'hazard-banner banner-sharp', role: 'alert' },
+      el('span', { class: 'hazard-banner-icon', text: '⚠️' }),
+      el('div', { class: 'hazard-banner-body' },
+        el('strong', { text: 'CRITICAL SHARP HAZARD DETECTED ON SURFACE' }),
+        el('p', { text: d.surfaceAlert || 'Caution: Sharp object (knife, razor, blade, or glass) detected. Avoid blind physical contact.' })
+      )
+    ));
+  }
+  if (isChem) {
+    kids.push(el('div', { class: 'hazard-banner banner-chemical', role: 'alert' },
+      el('span', { class: 'hazard-banner-icon', text: '☣️' }),
+      el('div', { class: 'hazard-banner-body' },
+        el('strong', { text: 'HAZARDOUS CHEMICAL OR ACID DETECTED' }),
+        el('p', { text: d.surfaceAlert || 'Danger: Acid, bleaching powder, or corrosive chemical bottle detected. Do not touch or inhale.' })
+      )
+    ));
+  }
+  if (isBio) {
+    kids.push(el('div', { class: 'hazard-banner banner-biological', role: 'alert' },
+      el('span', { class: 'hazard-banner-icon', text: '🪲' }),
+      el('div', { class: 'hazard-banner-body' },
+        el('strong', { text: 'BIOLOGICAL PEST OR FUNGAL HAZARD DETECTED' }),
+        el('p', { text: d.surfaceAlert || 'Warning: Insect, pest, or fungal mold spotted on surface. Check before sitting or touching.' })
+      )
+    ));
+  }
+
+  let sevBadgeText = 'Hazard: ' + sev;
+  let sevBadgeClass = 'badge sev';
+  if (isSharp) { sevBadgeText = 'SHARP HAZARD'; sevBadgeClass += ' sev-sharp'; }
+  else if (isChem) { sevBadgeText = 'CHEMICAL HAZARD'; sevBadgeClass += ' sev-chem'; }
+  else if (isBio) { sevBadgeText = 'BIO HAZARD'; sevBadgeClass += ' sev-bio'; }
+
   kids.push(el('div', { class: 'hero' },
-    el('span', { class: 'badge ' + (d.isPathClear ? 'ok' : 'bad'), text: d.isPathClear ? 'Path clear' : 'Path blocked' }),
-    el('span', { class: 'badge sev', text: 'Hazard: ' + sev }),
+    el('span', { class: 'badge ' + (d.isPathClear && !isCritical ? 'ok' : 'bad'), text: d.isPathClear && !isCritical ? 'Path clear' : 'Hazard alert' }),
+    el('span', { class: sevBadgeClass, text: sevBadgeText }),
     d.isDemoMode ? el('span', { class: 'badge demo', text: 'Demo' }) : null,
     el('h2', { class: 'alert', text: d.spokenAlert }),
     d.immediateAction ? el('p', { class: 'action' }, el('strong', { text: 'Recommended action: ' }), d.immediateAction) : null));
-  if (d.detectedObjects?.length) kids.push(section('Detected objects', el('ul', { class: 'list' }, d.detectedObjects.map((o) =>
-    el('li', {}, el('span', { class: 'dot', style: `background:${SEV_COLOR[o.severity] || SEV_COLOR.low}` }),
-      el('strong', { text: o.label }), ` — ${o.clockPosition}, ${o.distanceMeters} m `, el('em', { text: `(${o.severity})` }))))));
+  if (d.detectedObjects?.length) kids.push(section('Detected objects', el('ul', { class: 'list' }, d.detectedObjects.map((o) => {
+    const group = detectionGroup(o.label);
+    const sharpObj = o.isSharpHazard || o.hazardCategory === 'sharp' || group === 'Sharp Hazards';
+    const chemObj = o.isChemicalHazard || o.hazardCategory === 'chemical' || group === 'Chemical Hazards';
+    const bioObj = o.isBiologicalHazard || o.hazardCategory === 'biological' || group === 'Biological Hazards';
+
+    let itemClass = '';
+    let prefix = '';
+    let color = SEV_COLOR[o.severity] || SEV_COLOR.low;
+
+    if (sharpObj) { itemClass = 'item-sharp'; prefix = '⚠️ SHARP: '; color = '#ef4444'; }
+    else if (chemObj) { itemClass = 'item-chem'; prefix = '☣️ CHEM: '; color = '#ea580c'; }
+    else if (bioObj) { itemClass = 'item-bio'; prefix = '🪲 BIO: '; color = '#a855f7'; }
+
+    const surfaceTag = o.surfaceLocation ? ` [on ${o.surfaceLocation}]` : '';
+    const statusNote = sharpObj ? 'SHARP HAZARD' : chemObj ? 'CHEMICAL HAZARD' : bioObj ? 'BIO HAZARD' : o.severity;
+
+    return el('li', { class: itemClass },
+      el('span', { class: 'dot', style: `background:${color}` }),
+      el('strong', { text: prefix + o.label + surfaceTag }),
+      ` — ${o.clockPosition}, ${o.distanceMeters} m `,
+      el('em', { text: `(${statusNote})` }));
+  }))));
   if (d.textReadings?.length) kids.push(section('Text found', el('ul', { class: 'list' }, d.textReadings.map((t) =>
     el('li', {}, el('span', { class: 'tag', text: t.category }), el('q', { text: t.text }), el('small', { text: ` ${Math.round((t.confidence ?? 0) * 100)}%` }))))));
   const c = d.currencyDetected;

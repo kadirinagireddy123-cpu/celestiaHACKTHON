@@ -14,12 +14,15 @@
 
 ## ✨ Key Features
 
-1. **Obstacle & Safety Navigation (`mode: "safety"`)**:
+1. **Obstacle & Multi-Hazard Safety Navigation (`mode: "safety"`)**:
    - Detects physical hazards, ground drop-offs, stairs, furniture, pedestrians, and vehicles.
+   - **Sharp & Puncture Hazard Detection**: Detects knives, razor blades, stapler pins, needles, safety pins, broken glass shards, nails, and scissors fallen on beds, floors, or furniture.
+   - **Chemical & Toxic Hazard Detection**: Identifies corrosive acid bottles (Harpic/toilet cleaner), bleaching powder, caustic cleaners, and pesticide bottles.
+   - **Biological & Pest Hazard Detection**: Spots harmful stinging/biting insects (wasps, spiders, scorpions, centipedes, cockroaches) and visible fungal/mold patches on surfaces.
    - Provides clock-face spatial positioning (e.g., `11 o'clock`, `12 o'clock`).
    - Estimates distance in meters and severity flags (`none`, `low`, `medium`, `high`).
    - Speaks concise, urgent spoken alerts **under 15 words**.
-   - Generates normalized bounding boxes (`[ymin, xmin, ymax, xmax]`, 0-1000 scale) for visual overlay.
+   - Generates normalized bounding boxes (`[ymin, xmin, ymax, xmax]`, 0-1000 scale) with color-coded hazard alerts.
 
 2. **OCR & Sign Reading (`mode: "read"`)**:
    - Transcribes visible printed and handwritten text.

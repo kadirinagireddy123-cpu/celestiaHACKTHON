@@ -158,12 +158,112 @@ def get_mock_vision_assist(
         )
 
     # Safety mode
-    has_obstacle = "clear" not in user_prompt.lower()
+    prompt_lower = (user_prompt or "").lower()
+    has_chemical = any(w in prompt_lower for w in ["acid", "bleach", "bleaching", "chemical", "poison", "cleaner", "toxic"])
+    has_biological = any(w in prompt_lower for w in ["insect", "spider", "scorpion", "wasp", "bee", "centipede", "fungus", "mold", "cockroach"])
+    has_sharp = any(w in prompt_lower for w in ["sharp", "knife", "scissor", "blade", "razor", "needle", "glass", "nail", "pin", "stapler", "bed"])
+    has_obstacle = "clear" not in prompt_lower
+
+    if has_chemical:
+        return VisionAssistResult(
+            spokenAlert="Danger: Chemical hazard or acid bottle detected ahead. Do not touch.",
+            isPathClear=False,
+            immediateAction="Stop: corrosive chemical detected, keep distance and avoid touching",
+            hazardSeverity="high",
+            sharpHazardDetected=False,
+            chemicalHazardDetected=True,
+            biologicalHazardDetected=False,
+            hazardCategories=["chemical"],
+            surfaceAlert="Corrosive chemical or acid container on surface",
+            detectedObjects=[
+                DetectedObject(
+                    label="acid / chemical bottle",
+                    clockPosition="12 o'clock",
+                    distanceMeters=1.0,
+                    severity="high",
+                    isChemicalHazard=True,
+                    hazardCategory="chemical",
+                    surfaceLocation="floor",
+                    box2d=[400, 450, 750, 620],
+                )
+            ],
+            textReadings=[],
+            currencyDetected=CurrencyDetection(present=False),
+            sceneSummary="Chemical or corrosive substance container identified on floor.",
+            safetyNote="Corrosive hazard. Risk of skin burns and inhalation danger.",
+            isDemoMode=True,
+        )
+
+    if has_biological:
+        return VisionAssistResult(
+            spokenAlert="Caution: Insect or fungal growth detected on surface. Avoid contact.",
+            isPathClear=False,
+            immediateAction="Pause: inspect surface before sitting or touching",
+            hazardSeverity="high",
+            sharpHazardDetected=False,
+            chemicalHazardDetected=False,
+            biologicalHazardDetected=True,
+            hazardCategories=["biological"],
+            surfaceAlert="Biological pest or fungus detected on surface",
+            detectedObjects=[
+                DetectedObject(
+                    label="insect / fungus",
+                    clockPosition="1 o'clock",
+                    distanceMeters=0.6,
+                    severity="high",
+                    isBiologicalHazard=True,
+                    hazardCategory="biological",
+                    surfaceLocation="bed" if "bed" in prompt_lower else "surface",
+                    box2d=[350, 500, 550, 700],
+                )
+            ],
+            textReadings=[],
+            currencyDetected=CurrencyDetection(present=False),
+            sceneSummary="Biological pest or fungal patch detected on surface.",
+            safetyNote="Bite, sting, or allergen hazard.",
+            isDemoMode=True,
+        )
+
+    if has_sharp:
+        return VisionAssistResult(
+            spokenAlert="Warning: Sharp object detected on surface. Do not touch or step.",
+            isPathClear=False,
+            immediateAction="Pause: check surface carefully with an aid before touching",
+            hazardSeverity="high",
+            sharpHazardDetected=True,
+            chemicalHazardDetected=False,
+            biologicalHazardDetected=False,
+            hazardCategories=["sharp"],
+            surfaceAlert="Sharp cutting hazard lying on surface",
+            detectedObjects=[
+                DetectedObject(
+                    label="sharp blade / knife / stapler pin",
+                    clockPosition="1 o'clock",
+                    distanceMeters=0.8,
+                    severity="high",
+                    isSharpHazard=True,
+                    hazardCategory="sharp",
+                    surfaceLocation="bed" if "bed" in prompt_lower else "floor",
+                    box2d=[420, 520, 680, 820],
+                )
+            ],
+            textReadings=[],
+            currencyDetected=CurrencyDetection(present=False),
+            sceneSummary="Surface inspection identified a sharp cutting object lying exposed.",
+            safetyNote="High puncture or laceration hazard. Never sit or step on surface blindly.",
+            isDemoMode=True,
+        )
+
     return VisionAssistResult(
         spokenAlert=dict_msg["safety_obstacle"] if has_obstacle else dict_msg["safety_clear"],
         isPathClear=not has_obstacle,
         immediateAction=LOCALIZED_ACTIONS.get(lang, LOCALIZED_ACTIONS["en"]),
         hazardSeverity="medium" if has_obstacle else "none",
+        sharpHazardDetected=False,
+        chemicalHazardDetected=False,
+        biologicalHazardDetected=False,
+        hazardCategories=[],
+        surfaceAlert=None,
         detectedObjects=[
             DetectedObject(
                 label="office chair",
