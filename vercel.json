@@ -3,11 +3,7 @@
   "rewrites": [
     {
       "source": "/(health|languages|modes|vision-assist|chat|tts|docs|openapi.json|redoc)(.*)",
-      "destination": "/api/index.py"
-    },
-    {
-      "source": "/api/(.*)",
-      "destination": "/api/index.py"
+      "destination": "/api/$1$2"
     }
   ]
 }

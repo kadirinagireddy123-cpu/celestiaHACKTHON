@@ -56,18 +56,18 @@ export class Api {
     return data;
   }
 
-  health() { return this.#req('/health', { timeout: 6000 }); }
-  languages() { return this.#req('/languages', { timeout: 6000 }); }
-  modes() { return this.#req('/modes', { timeout: 6000 }); }
+  health() { return this.#req('/api/health', { timeout: 6000 }); }
+  languages() { return this.#req('/api/languages', { timeout: 6000 }); }
+  modes() { return this.#req('/api/modes', { timeout: 6000 }); }
   vision({ image, mode, language, userPrompt }, signal) {
-    return this.#req('/vision-assist', { method: 'POST', body: { image, mode, language, userPrompt: userPrompt || '' }, signal });
+    return this.#req('/api/vision-assist', { method: 'POST', body: { image, mode, language, userPrompt: userPrompt || '' }, signal });
   }
   chat({ message, history, language, image }, signal) {
     const body = { message, history, language };
     if (image) body.image = image;
-    return this.#req('/chat', { method: 'POST', body, signal });
+    return this.#req('/api/chat', { method: 'POST', body, signal });
   }
   tts({ text, language, voice }) {
-    return this.#req('/tts', { method: 'POST', body: { text, language, voice }, timeout: 8000 });
+    return this.#req('/api/tts', { method: 'POST', body: { text, language, voice }, timeout: 8000 });
   }
 }
