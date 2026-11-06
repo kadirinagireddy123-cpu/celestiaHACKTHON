@@ -219,6 +219,49 @@ class DrishtiApiTests(unittest.TestCase):
         self.assertIn("speechConfig", data)
         self.assertEqual(data["speechConfig"]["lang"], "en-US")
 
+    def test_tts_kannada_gtts(self):
+        response = self.client.post(
+            "/tts",
+            json={
+                "text": "ಎಚ್ಚರಿಕೆ: ಮುಂದೆ ವ್ಯಕ್ತಿಯೊಬ್ಬರು ಇದ್ದಾರೆ.",
+                "language": "kn",
+            },
+        )
+        self.assertEqual(response.status_code, 200)
+        data = response.json()["data"]
+        self.assertEqual(data["language"], "kn")
+        self.assertIn(data["source"], ["gtts", "browser_speech_synthesis"])
+        if data["source"] == "gtts":
+            self.assertIsNotNone(data["audioData"])
+            self.assertEqual(data["audioMimeType"], "audio/mp3")
+
+    def test_tts_stream_endpoint(self):
+        response = self.client.get(
+            "/tts/stream",
+            params={
+                "text": "ಎಚ್ಚರಿಕೆ",
+                "language": "kn",
+            },
+        )
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.headers["content-type"], "audio/mpeg")
+        self.assertGreater(len(response.content), 0)
+
+    def test_generate_multilingual_audio_function(self):
+        from src.services.tts_service import generate_multilingual_audio
+        import tempfile
+        import os
+        with tempfile.NamedTemporaryFile(suffix=".mp3", delete=False) as tmp:
+            tmp_path = tmp.name
+        try:
+            res = generate_multilingual_audio("ನಮಸ್ಕಾರ", lang_code="kn", filename=tmp_path)
+            self.assertEqual(res, tmp_path)
+            self.assertTrue(os.path.exists(tmp_path))
+            self.assertGreater(os.path.getsize(tmp_path), 0)
+        finally:
+            if os.path.exists(tmp_path):
+                os.remove(tmp_path)
+
     def test_api_prefix_aliases(self):
         res = self.client.get("/api/health")
         self.assertEqual(res.status_code, 200)

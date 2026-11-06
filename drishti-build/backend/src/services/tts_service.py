@@ -1,9 +1,10 @@
-"""Text-to-speech service with browser fallback (converted from ttsService.js)."""
+"""Text-to-speech service using gTTS (Google Text-to-Speech) with browser fallback."""
+import io
 import sys
+import base64
+import logging
 from pathlib import Path
 from typing import Optional
-import requests
-import logging
 from pydantic import BaseModel, Field
 
 _BACKEND_DIR = Path(__file__).resolve().parent.parent.parent
@@ -11,10 +12,8 @@ if str(_BACKEND_DIR) not in sys.path:
     sys.path.insert(0, str(_BACKEND_DIR))
 
 try:
-    from ..config.env import config
     from ..config.languages import get_language_metadata
 except (ImportError, ValueError):
-    from src.config.env import config
     from src.config.languages import get_language_metadata
 
 logger = logging.getLogger("drishti.tts")
@@ -33,12 +32,12 @@ class TTSResult(BaseModel):
     audioData: Optional[str] = Field(None, description="Base64 encoded audio bytes")
     audioMimeType: Optional[str] = Field(None, description="Audio MIME type")
     useBrowserFallback: bool = Field(True, description="Whether client should use browser SpeechSynthesis")
-    source: str = Field("browser_speech_synthesis", description="Synthesis source")
+    source: str = Field("gtts", description="Synthesis source")
     speechConfig: Optional[SpeechConfig] = Field(None, description="Client speech synthesis parameter tuning")
 
 class TTSRequest(BaseModel):
     text: str = Field(..., description="Text string to synthesize")
-    language: str = Field("en", description="Target language code")
+    language: str = Field("en", description="Target language code (e.g. 'kn', 'hi', 'te', 'ta', 'en')")
     voice: Optional[str] = Field("neutral", description="Voice profile ('neutral', 'female', 'male')")
 
 class TTSResponse(BaseModel):
@@ -46,43 +45,69 @@ class TTSResponse(BaseModel):
     timestamp: str
     data: TTSResult
 
+def generate_multilingual_audio(text: str, lang_code: str = "en", filename: str = "output.mp3") -> Optional[str]:
+    """
+    Generates an audio file in the specified language using gTTS.
+    lang_code examples: 'kn' for Kannada, 'hi' for Hindi, 'te' for Telugu, 'en' for English
+    """
+    try:
+        from gtts import gTTS
+        tts = gTTS(text=text, lang=lang_code, slow=False)
+        tts.save(filename)
+        logger.info(f"Generated multilingual audio file saved to {filename}")
+        return filename
+    except Exception as e:
+        logger.warning(f"Error generating speech file: {e}")
+        return None
+
+def generate_multilingual_bytes(text: str, lang_code: str = "en") -> Optional[bytes]:
+    """
+    Generates MP3 audio bytes in memory using gTTS.
+    """
+    try:
+        from gtts import gTTS
+        clean_code = (lang_code or "en").lower().split("-")[0]
+        tts = gTTS(text=text, lang=clean_code, slow=False)
+        fp = io.BytesIO()
+        tts.write_to_fp(fp)
+        fp.seek(0)
+        return fp.read()
+    except Exception as e:
+        logger.warning(f"gTTS audio synthesis failed for '{text[:30]}...' in '{lang_code}': {e}")
+        return None
+
 def generate_speech(text: str, language: str = "en", voice: str = "neutral") -> TTSResult:
     if not text:
         raise ValueError("Text parameter is required for TTS")
 
     lang_meta = get_language_metadata(language)
+    lang_code = lang_meta.get("code", "en").lower().split("-")[0]
 
-    if config.GEMINI_API_KEY:
-        try:
-            url = f"https://texttospeech.googleapis.com/v1/text:synthesize?key={config.GEMINI_API_KEY}"
-            payload = {
-                "input": {"text": text},
-                "voice": {
-                    "languageCode": lang_meta["bcp47"],
-                    "ssmlGender": "MALE" if voice == "male" else "FEMALE",
-                },
-                "audioConfig": {
-                    "audioEncoding": "MP3",
-                    "speakingRate": 1.05,
-                    "pitch": 0.0,
-                },
-            }
-            resp = requests.post(url, json=payload, timeout=4)
-            if resp.status_code == 200:
-                data = resp.json()
-                if "audioContent" in data:
-                    return TTSResult(
-                        text=text,
-                        language=lang_meta["code"],
-                        bcp47=lang_meta["bcp47"],
-                        audioData=data["audioContent"],
-                        audioMimeType="audio/mp3",
-                        useBrowserFallback=False,
-                        source="gemini_cloud_tts",
-                    )
-        except Exception as e:
-            logger.warning(f"Server TTS failed: {e}. Falling back to browser speech.")
+    fallback_speech_config = SpeechConfig(
+        text=text,
+        lang=lang_meta["bcp47"],
+        rate=1.05,
+        pitch=1.0,
+        volume=1.0,
+    )
 
+    # 1. Primary: High-fidelity multilingual gTTS audio
+    audio_bytes = generate_multilingual_bytes(text, lang_code=lang_code)
+    if audio_bytes:
+        audio_b64 = base64.b64encode(audio_bytes).decode("utf-8")
+        return TTSResult(
+            text=text,
+            language=lang_meta["code"],
+            bcp47=lang_meta["bcp47"],
+            audioData=audio_b64,
+            audioMimeType="audio/mp3",
+            useBrowserFallback=False,
+            source="gtts",
+            speechConfig=fallback_speech_config,
+        )
+
+    # 2. Resilient Fallback: Browser Web Speech API
+    logger.info("Falling back to client browser SpeechSynthesis.")
     return TTSResult(
         text=text,
         language=lang_meta["code"],
@@ -91,11 +116,5 @@ def generate_speech(text: str, language: str = "en", voice: str = "neutral") -> 
         audioMimeType=None,
         useBrowserFallback=True,
         source="browser_speech_synthesis",
-        speechConfig=SpeechConfig(
-            text=text,
-            lang=lang_meta["bcp47"],
-            rate=1.05,
-            pitch=1.0,
-            volume=1.0,
-        ),
+        speechConfig=fallback_speech_config,
     )
