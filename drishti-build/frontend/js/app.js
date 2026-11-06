@@ -1,5 +1,5 @@
 import { Api, ApiError, FALLBACK_LANGUAGES, FALLBACK_MODES } from './api.js';
-import { Speaker, listen, recognitionSupported } from './speech.js';
+import { Speaker, listen, playChime, recognitionSupported } from './speech.js';
 
 const $ = (id) => document.getElementById(id);
 const DEFAULTS = {
@@ -38,7 +38,20 @@ function toast(msg, ms = 5000) {
   clearTimeout(toastT); toastT = setTimeout(() => (t.hidden = true), ms);
 }
 const errMsg = (e) => (e instanceof ApiError || e instanceof Error ? e.message : String(e));
-const say = (text, opts) => state.prefs.autoSpeak || opts?.force ? speaker.speak(text, opts) : null;
+async function say(text, opts) {
+  if (!text) return;
+  const hud = $('voiceHud'), status = $('voiceHudStatus');
+  if (hud) hud.classList.add('speaking');
+  if (status) status.textContent = '🔊 Drishti Speaking…';
+  try {
+    return await (state.prefs.autoSpeak || opts?.force ? speaker.speak(text, opts) : null);
+  } finally {
+    if (hud) hud.classList.remove('speaking');
+    if (status) {
+      status.textContent = voiceAssistantActive ? '🎙️ Voice Mode Active · Listening for commands' : '🎙️ Voice Standby';
+    }
+  }
+}
 const persist = () => store.save(state.prefs);
 
 /* ---------------------------------------------------------- tabs */
@@ -592,6 +605,318 @@ window.addEventListener('beforeunload', () => { speaker.stop(); stopCamera(); })
 document.addEventListener('visibilitychange', () => { if (document.hidden && state.auto) setAuto(false); });
 
 if (!recognitionSupported()) ['btnMicPrompt', 'btnMicChat'].forEach((id) => { $(id).title = 'Voice input needs Chrome or Edge'; $(id).classList.add('unsupported'); });
+
+/* ---------------------------------------------------------- Voice-First Assistant */
+let continuousRec = null;
+let voiceAssistantActive = false;
+let lastScreenTapTime = 0;
+
+const VOICE_WELCOME = {
+  kn: "ದೃಷ್ಟಿ ಧ್ವನಿ ಸಹಾಯಕ ಪ್ರಾರಂಭವಾಗಿದೆ. ಕ್ಯಾಮರಾ ಮತ್ತು ಸುರಕ್ಷತಾ ಸ್ಕ್ಯಾನಿಂಗ್ ಸಕ್ರಿಯವಾಗಿದೆ. ನೀವು ಯಾವುದೇ ಸಮಯದಲ್ಲಿ ಧ್ವನಿ ಆಜ್ಞೆಗಳನ್ನು ನೀಡಬಹುದು.",
+  hi: "दृष्टि वॉयस असिस्टेंट शुरू हो गया है। कैमरा और सुरक्षा स्कैनिंग सक्रिय है। आप बोलकर निर्देश दे सकते हैं।",
+  te: "దృష్టి వాయిస్ అసిస్టెంట్ ప్రారంభమైంది. కెమెరా మరియు భద్రతా స్కానింగ్ పనిచేస్తున్నాయి. మాట్లాడి ఆదేశాలు ఇవ్వండి.",
+  ta: "திருஷ்டி குரல் உதவியாளர் தொடங்கியது. கேமரா மற்றும் பாதுகாப்பு ஸ்கேனிங் இயங்குகிறது. எப்போது வேண்டுமானாலும் பேசுங்கள்.",
+  en: "Welcome to Drishti. Camera is active and continuous safety scanning is on. Everything can be controlled by voice. Tap anywhere to speak or say any command."
+};
+
+function updateHud(statusText, isListening = false, isSpeaking = false) {
+  const hud = $('voiceHud'), status = $('voiceHudStatus'), btn = $('btnVoiceFloat');
+  if (status) status.textContent = statusText;
+  if (hud) {
+    hud.classList.toggle('listening', isListening);
+    hud.classList.toggle('speaking', isSpeaking);
+  }
+  if (btn) {
+    btn.classList.toggle('listening', isListening);
+    const txt = btn.querySelector('.voice-float-text');
+    if (txt) txt.textContent = isListening ? 'Listening…' : 'Tap to Speak';
+  }
+}
+
+function showTranscript(text) {
+  const t = $('voiceHudTranscript');
+  if (t) t.textContent = text ? `“${text}”` : '';
+}
+
+function initVoiceAssistant() {
+  const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+  if (!SR) return;
+  try {
+    continuousRec = new SR();
+    continuousRec.continuous = true;
+    continuousRec.interimResults = true;
+    continuousRec.maxAlternatives = 1;
+    continuousRec.lang = lang().bcp47;
+
+    continuousRec.onstart = () => {
+      updateHud('🎙️ Voice Active · Listening for commands', true, false);
+    };
+
+    continuousRec.onresult = (e) => {
+      if (speaker.isSpeaking()) return;
+      let interim = '';
+      let finalStr = '';
+      for (let i = e.resultIndex; i < e.results.length; i++) {
+        const trans = e.results[i][0].transcript;
+        if (e.results[i].isFinal) finalStr += trans;
+        else interim += trans;
+      }
+      const cur = (finalStr || interim).trim();
+      if (cur) showTranscript(cur);
+      if (finalStr.trim()) {
+        handleVoiceCommand(finalStr.trim());
+      }
+    };
+
+    continuousRec.onerror = (e) => {
+      if (e.error !== 'no-speech' && e.error !== 'aborted') {
+        console.warn('SpeechRecognition error:', e.error);
+      }
+    };
+
+    continuousRec.onend = () => {
+      if (voiceAssistantActive && !speaker.isSpeaking()) {
+        try {
+          continuousRec.lang = lang().bcp47;
+          continuousRec.start();
+        } catch {}
+      } else {
+        updateHud('🎙️ Voice Standby', false, false);
+      }
+    };
+  } catch (e) {
+    console.warn('Could not init continuous speech recognition:', e);
+  }
+}
+
+function startContinuousListening() {
+  voiceAssistantActive = true;
+  if (!continuousRec) initVoiceAssistant();
+  if (continuousRec) {
+    try {
+      continuousRec.lang = lang().bcp47;
+      continuousRec.start();
+    } catch {}
+  }
+  updateHud('🎙️ Voice Active · Listening for commands', true, false);
+}
+
+function stopContinuousListening() {
+  voiceAssistantActive = false;
+  if (continuousRec) {
+    try { continuousRec.stop(); } catch {}
+  }
+  updateHud('🎙️ Voice Paused', false, false);
+}
+
+async function handleVoiceCommand(raw) {
+  const t = raw.toLowerCase().trim();
+  showTranscript(raw);
+
+  // 1. Language switching
+  if (/\b(kannada|kannad)\b/i.test(t) || /ಕನ್ನಡ/.test(t)) {
+    playChime('success');
+    switchLanguage('kn', 'ಕನ್ನಡ ಭಾಷೆಯನ್ನು ಆಯ್ಕೆ ಮಾಡಲಾಗಿದೆ.');
+    return;
+  }
+  if (/\b(hindi)\b/i.test(t) || /हिंदी/.test(t)) {
+    playChime('success');
+    switchLanguage('hi', 'हिंदी भाषा चुनी गई है।');
+    return;
+  }
+  if (/\b(telugu)\b/i.test(t) || /తెలుగు/.test(t)) {
+    playChime('success');
+    switchLanguage('te', 'తెలుగు భాష ఎంపిక చేయబడింది.');
+    return;
+  }
+  if (/\b(tamil)\b/i.test(t) || /தமிழ்/.test(t)) {
+    playChime('success');
+    switchLanguage('ta', 'தமிழ் மொழி தேர்ந்தெடுக்கப்பட்டது.');
+    return;
+  }
+  if (/\b(english)\b/i.test(t)) {
+    playChime('success');
+    switchLanguage('en', 'Switched to English.');
+    return;
+  }
+
+  // 2. Mode switching
+  if (/\b(read|reading|text|sign|signs|board|medicine|label|odhu|padho|chaduvu|padi)\b/i.test(t) || /ಓದು|ಪಠ್ಯ|पढ़|చదువు|படி/.test(t)) {
+    playChime('success');
+    setMode('read', true);
+    analyze();
+    return;
+  }
+  if (/\b(currency|money|cash|note|rupee|banknote|hana|paise|dabbulu|panam)\b/i.test(t) || /ಹಣ|ನೋಟು|करेंसी|पैसे|నోటు|பணம்/.test(t)) {
+    playChime('success');
+    setMode('currency', true);
+    analyze();
+    return;
+  }
+  if (/\b(safety|hazard|obstacle|suraksha|bhadrata|kavach)\b/i.test(t) || /ಸುರಕ್ಷತೆ|सुरक्षा|రక్షణ|பாதுகாப்பு/.test(t)) {
+    playChime('success');
+    setMode('safety', true);
+    analyze();
+    return;
+  }
+  if (/\b(everything|all|comprehensive|yella|sab|anni|ellam)\b/i.test(t)) {
+    playChime('success');
+    setMode('all', true);
+    analyze();
+    return;
+  }
+
+  // 3. Navigation controls
+  if (/\b(walk|start walk|guided walk|begin|nadiri|chalo|nadavandi|nada)\b/i.test(t) || /ನಡೆಯಿರಿ|चलना|నడవండి/.test(t)) {
+    playChime('success');
+    startGuidedWalk();
+    return;
+  }
+  if (/\b(stop|halt|end walk|stop walk|nillisu|ruko|aagu|aagandi|nillu)\b/i.test(t) || /ನಿಲ್ಲಿಸು|रुको|ఆపు|நிறுத்து/.test(t)) {
+    playChime('stop');
+    speaker.stop();
+    endGuidedWalk();
+    say('Walk stopped. Standing by.', { force: true });
+    return;
+  }
+  if (/\b(pause|virama|rok|aagisi)\b/i.test(t) || /ವಿರಾಮ|रोकें|పాజ్/.test(t)) {
+    playChime('stop');
+    pauseGuidedWalk();
+    return;
+  }
+  if (/\b(resume|continue|munaduvarsi|jaari|malli)\b/i.test(t) || /ಮುಂದುವರಿಸಿ|जारी|కొనసాగించు/.test(t)) {
+    playChime('success');
+    if (state.walkPaused) pauseGuidedWalk();
+    return;
+  }
+  if (/\b(scan|analyze|check|what is in front|what's in front|what do you see|mundhe enidhe|kya hai|mundu emundi|enna irukku)\b/i.test(t) || /ಮುಂದೆ ಏನಿದೆ|सामने क्या है/.test(t)) {
+    playChime('listen');
+    analyze();
+    return;
+  }
+  if (/\b(repeat|again|matthe heli|phir se|malli cheppu|marupadiyum)\b/i.test(t) || /ಮತ್ತೆ ಹೇಳಿ|फिर से|మళ్ళీ/.test(t)) {
+    playChime('success');
+    const prev = state.lastSpoken.text;
+    if (prev) speaker.speak(prev, { force: true });
+    else say('Nothing to repeat yet.', { force: true });
+    return;
+  }
+
+  // 4. Help
+  if (/\b(help|commands|instructions|what can i say)\b/i.test(t)) {
+    playChime('success');
+    say("You can say: Read text, Currency, Safety, Start walk, Stop, Pause, Repeat, or name a language like Kannada, Hindi, or English. You can also ask any question about what is in front of you.", { force: true });
+    return;
+  }
+
+  // 5. Conversational / Visual Q&A
+  playChime('listen');
+  const frame = captureFrame(800, 0.65);
+  say("Checking: " + raw, { force: true });
+  try {
+    const r = await api.chat({ message: raw, history: state.history.slice(-6), language: state.prefs.language, image: frame });
+    const d = r.data;
+    state.history.push({ role: 'user', text: raw }, { role: 'model', text: d.reply });
+    say(d.spokenText || d.reply, { force: true });
+  } catch (err) {
+    say("Could not answer question: " + errMsg(err), { force: true });
+  }
+}
+
+function switchLanguage(code, confirmationText) {
+  state.prefs.language = code;
+  persist();
+  applyDisplay();
+  const sel = $('language');
+  if (sel) sel.value = code;
+  if (continuousRec) continuousRec.lang = lang().bcp47;
+  say(confirmationText, { force: true });
+}
+
+async function startVoiceNavigation() {
+  const overlay = $('voiceOverlay');
+  if (overlay) overlay.hidden = true;
+  playChime('start');
+
+  // Start camera if not running
+  if (state.source !== 'camera') {
+    await startCamera();
+  }
+
+  // Start guided walk continuous scanning
+  startGuidedWalk();
+
+  // Welcome Announcement
+  const welcome = VOICE_WELCOME[state.prefs.language] || VOICE_WELCOME.en;
+  await say(welcome, { force: true });
+
+  // Activate continuous voice listener
+  startContinuousListening();
+}
+
+async function triggerVoiceInput() {
+  playChime('listen');
+  updateHud('🎙️ Listening to you now… speak your question', true, false);
+  try {
+    const text = await listen(lang().bcp47, {
+      onInterim: (x) => showTranscript(x)
+    });
+    if (text) {
+      handleVoiceCommand(text);
+    } else {
+      updateHud('🎙️ Voice Active · Listening for commands', true, false);
+    }
+  } catch (err) {
+    toast(errMsg(err));
+    updateHud('🎙️ Voice Active · Listening for commands', true, false);
+  }
+}
+
+/* Screen Tap Gestures for Blind Navigation */
+document.addEventListener('click', (e) => {
+  // If voice overlay is active, clicking anywhere starts voice navigation!
+  const overlay = $('voiceOverlay');
+  if (overlay && !overlay.hidden) {
+    startVoiceNavigation();
+    return;
+  }
+
+  // If clicking on specific interactive controls, allow standard behavior
+  const tag = e.target.tagName;
+  if (['BUTTON', 'INPUT', 'SELECT', 'TEXTAREA', 'A', 'LABEL'].includes(tag) || e.target.closest('button, input, select, textarea, a, label, .mode')) {
+    return;
+  }
+
+  // Double tap detection (within 350ms) = repeat last spoken alert
+  const now = Date.now();
+  if (now - lastScreenTapTime < 350) {
+    lastScreenTapTime = 0;
+    playChime('success');
+    const t = state.lastSpoken.text;
+    if (t) speaker.speak(t, { force: true });
+    return;
+  }
+  lastScreenTapTime = now;
+
+  // Single tap on background = trigger voice input
+  triggerVoiceInput();
+});
+
+// Spacebar / Enter shortcut when overlay is open
+document.addEventListener('keydown', (e) => {
+  const overlay = $('voiceOverlay');
+  if (overlay && !overlay.hidden) {
+    if (e.key === ' ' || e.key === 'Enter') {
+      e.preventDefault();
+      startVoiceNavigation();
+    }
+  }
+});
+
+// Floating Voice Button & Overlay Button
+$('btnStartVoiceMode')?.addEventListener('click', (e) => { e.stopPropagation(); startVoiceNavigation(); });
+$('voiceTapBanner')?.addEventListener('click', (e) => { e.stopPropagation(); startVoiceNavigation(); });
+$('btnVoiceFloat')?.addEventListener('click', (e) => { e.stopPropagation(); triggerVoiceInput(); });
 
 bindSettings(); applyDisplay(); renderLanguages(); renderModes(); installDetectionSummary(); updateWalkState(); showTab('vision'); refreshServerInfo();
 if ('speechSynthesis' in window) speechSynthesis.getVoices();

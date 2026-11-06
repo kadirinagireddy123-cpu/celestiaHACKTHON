@@ -10,6 +10,56 @@
 <body>
 <a class="skip" href="#main">Skip to main content</a>
 
+<!-- Voice Navigation HUD (Floating real-time voice status) -->
+<aside id="voiceHud" class="voice-hud" aria-live="polite" role="status">
+  <div class="voice-hud-main">
+    <span class="voice-hud-pulse" id="voiceHudPulse"></span>
+    <span id="voiceHudStatus" class="voice-hud-label">🎙️ Voice Mode Active · Listening for commands</span>
+  </div>
+  <div id="voiceHudTranscript" class="voice-hud-transcript" aria-atomic="true"></div>
+</aside>
+
+<!-- Full-screen Voice-First Welcome Overlay -->
+<div id="voiceOverlay" class="voice-overlay" role="dialog" aria-modal="true" aria-labelledby="voiceOverlayTitle">
+  <div class="voice-card">
+    <div class="voice-pulse-circle" aria-hidden="true">
+      <span class="pulse-ring r1"></span>
+      <span class="pulse-ring r2"></span>
+      <span class="pulse-icon">🎙️</span>
+    </div>
+    <h1 id="voiceOverlayTitle">Drishti Voice Assistant</h1>
+    <p class="voice-lead">100% Hands-Free & Spoken Guidance for Visually Impaired Users</p>
+
+    <div class="voice-tap-banner" id="voiceTapBanner">
+      <span class="tap-callout">👆 TAP ANYWHERE ON SCREEN OR PRESS SPACE TO START</span>
+      <p class="tap-hint">Camera, continuous safety scanning, and voice control will start automatically.</p>
+    </div>
+
+    <div class="voice-commands-help">
+      <h2>Natural Voice Commands You Can Speak Anytime:</h2>
+      <div class="voice-grid-cmds">
+        <div class="vcmd"><strong>“Scan” / “What's in front of me?”</strong><span>Immediate obstacle & safety check</span></div>
+        <div class="vcmd"><strong>“Read text” / “Signs”</strong><span>Switches to text & medicine OCR</span></div>
+        <div class="vcmd"><strong>“Currency” / “Money”</strong><span>Banknote denomination reader</span></div>
+        <div class="vcmd"><strong>“Safety” / “Obstacles”</strong><span>Surroundings & sharp hazard scanner</span></div>
+        <div class="vcmd"><strong>“Start walk” / “Stop” / “Pause”</strong><span>Guided walk navigation</span></div>
+        <div class="vcmd"><strong>“Kannada” / “Hindi” / “Telugu” / “Tamil” / “English”</strong><span>Instant voice language switch</span></div>
+        <div class="vcmd"><strong>Ask any question</strong><span>e.g., “Is there a knife on the bed?”</span></div>
+      </div>
+    </div>
+
+    <button id="btnStartVoiceMode" type="button" class="btn primary voice-activate-btn">
+      🎙️ Start Drishti Voice Mode
+    </button>
+  </div>
+</div>
+
+<!-- Floating Tactile Voice Button (always accessible) -->
+<button id="btnVoiceFloat" class="voice-float-btn" type="button" aria-label="Tap to speak command or ask question" title="Tap anywhere or press M to speak">
+  <span class="voice-float-icon">🎙️</span>
+  <span class="voice-float-text">Tap to Speak</span>
+</button>
+
 <header class="top">
   <div class="brand">
     <svg viewBox="0 0 32 32" width="30" height="30" aria-hidden="true"><path d="M2 16s5-9 14-9 14 9 14 9-5 9-14 9S2 16 2 16z" fill="none" stroke="currentColor" stroke-width="2.4"/><circle cx="16" cy="16" r="5" fill="currentColor"/></svg>
