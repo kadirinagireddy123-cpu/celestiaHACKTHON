@@ -67,7 +67,12 @@ async def analyze_vision_frame(
         logger.info("Running vision analysis in DEMO MODE (no API key configured).")
         return get_mock_vision_assist(mode, language, user_prompt)
 
-    models_to_try = [config.PRIMARY_MODEL, config.FALLBACK_MODEL]
+    models_to_try = [
+        config.PRIMARY_MODEL,
+        config.FALLBACK_MODEL,
+        "gemini-flash-lite-latest",
+        "gemini-3.1-flash-lite",
+    ]
     last_error = None
 
     try:
@@ -124,7 +129,12 @@ async def chat_with_assistant(
         logger.info("Chat running in DEMO MODE (no API key configured).")
         return get_mock_chat_response(message or "", language)
 
-    models_to_try = [config.PRIMARY_MODEL, config.FALLBACK_MODEL]
+    models_to_try = [
+        config.PRIMARY_MODEL,
+        config.FALLBACK_MODEL,
+        "gemini-flash-lite-latest",
+        "gemini-3.1-flash-lite",
+    ]
     system_instruction = get_chat_system_prompt(language)
     last_error = None
 

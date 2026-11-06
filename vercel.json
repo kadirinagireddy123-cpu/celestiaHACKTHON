@@ -2,8 +2,12 @@
   "version": 2,
   "rewrites": [
     {
+      "source": "/api/(.*)",
+      "destination": "/api/index"
+    },
+    {
       "source": "/(health|languages|modes|vision-assist|chat|tts|docs|openapi.json|redoc)(.*)",
-      "destination": "/api/$1$2"
+      "destination": "/api/index"
     }
   ]
 }
