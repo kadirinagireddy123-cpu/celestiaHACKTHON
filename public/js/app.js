@@ -1,5 +1,5 @@
 import { Api, ApiError, FALLBACK_LANGUAGES, FALLBACK_MODES } from './api.js';
-import { Speaker, listen, playChime, recognitionSupported } from './speech.js';
+import { Speaker, listen, playChime, requestMicrophonePermission, recognitionSupported } from './speech.js';
 
 const $ = (id) => document.getElementById(id);
 const DEFAULTS = {
@@ -194,6 +194,9 @@ const video = $('video'), still = $('still'), overlay = $('overlay'), stage = $(
 async function startCamera() {
   if (!navigator.mediaDevices?.getUserMedia) return toast('Camera is not available here. Use HTTPS or localhost, or upload a photo.');
   try {
+    // Proactively request device microphone permission alongside camera
+    requestMicrophonePermission().catch(() => {});
+
     let stream = null;
     try {
       stream = await navigator.mediaDevices.getUserMedia({
@@ -571,16 +574,31 @@ async function dictate(btn, input, then) {
   if (btn.classList.contains('listening')) return;
   speaker.stop();
   btn.classList.add('listening'); btn.setAttribute('aria-pressed', 'true');
-  const old = input.placeholder; input.placeholder = 'Listening…';
+  const old = input.placeholder;
+  input.placeholder = '🎙️ Listening… speak into your microphone';
   try {
-    const t = await listen(lang().bcp47, { onInterim: (x) => (input.value = x) });
-    if (t) { input.value = t; then?.(t); } else toast('I did not hear anything. Try speaking again or type.');
-  } catch (e) {
-    if (!String(e).toLowerCase().includes('network')) {
-      toast(errMsg(e));
+    const t = await listen(lang().bcp47, {
+      onInterim: (x) => {
+        input.value = x;
+        showTranscript(x);
+      }
+    });
+    if (t) {
+      input.value = t;
+      showTranscript(t);
+      playChime('success');
+      then?.(t);
+    } else {
+      toast('I did not hear anything. Try speaking again or type.');
     }
+  } catch (e) {
+    toast(errMsg(e));
   }
-  finally { btn.classList.remove('listening'); btn.setAttribute('aria-pressed', 'false'); input.placeholder = old; }
+  finally {
+    btn.classList.remove('listening');
+    btn.setAttribute('aria-pressed', 'false');
+    input.placeholder = old;
+  }
 }
 const micVision = () => dictate($('btnMicPrompt'), $('userPrompt'), () => analyze());
 const micChat = () => dictate($('btnMicChat'), $('chatInput'), () => sendChat());
@@ -924,21 +942,33 @@ async function startVoiceNavigation() {
 
 async function triggerVoiceInput() {
   playChime('listen');
-  updateHud('🎙️ Listening to you now… speak your question', true, false);
+  updateHud('🎙️ Listening to you now… speak your question or command', true, false);
+  const promptInput = $('userPrompt');
+  const chatInput = $('chatInput');
+  const targetInput = !$('panel-chat').hidden ? chatInput : promptInput;
+  const oldPlaceholder = targetInput ? targetInput.placeholder : '';
+  if (targetInput) targetInput.placeholder = '🎙️ Listening… speak into your microphone';
+
   try {
     const text = await listen(lang().bcp47, {
-      onInterim: (x) => showTranscript(x)
+      onInterim: (x) => {
+        showTranscript(x);
+        if (targetInput) targetInput.value = x;
+      }
     });
     if (text) {
+      if (targetInput) targetInput.value = text;
+      showTranscript(text);
+      playChime('success');
       handleVoiceCommand(text);
     } else {
       updateHud('🎙️ Voice Active · Listening for commands', true, false);
     }
   } catch (err) {
-    if (!err.message?.toLowerCase().includes('network')) {
-      toast(errMsg(err));
-    }
+    toast(errMsg(err));
     updateHud('🎙️ Voice Active · Listening for commands', true, false);
+  } finally {
+    if (targetInput) targetInput.placeholder = oldPlaceholder;
   }
 }
 

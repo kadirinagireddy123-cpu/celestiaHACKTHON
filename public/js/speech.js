@@ -197,11 +197,34 @@ export class Speaker {
 
 export const recognitionSupported = () => !!(window.SpeechRecognition || window.webkitSpeechRecognition);
 
-// One-shot dictation. Returns a promise of the transcript ('' if nothing heard).
-export function listen(bcp47, { onInterim } = {}) {
+// Explicitly requests microphone permissions from the browser / device
+export async function requestMicrophonePermission() {
+  if (!navigator.mediaDevices?.getUserMedia) {
+    return false;
+  }
+  try {
+    const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+    // Stop tracks to release mic while maintaining permission
+    stream.getTracks().forEach((track) => track.stop());
+    return true;
+  } catch (err) {
+    if (err.name === 'NotAllowedError' || err.name === 'PermissionDeniedError') {
+      throw new Error('Microphone permission was denied. Please click the lock icon in the address bar to allow microphone access.');
+    }
+    return false;
+  }
+}
+
+// Real-time speech-to-text dictation with live interim stream and device mic authorization
+export async function listen(bcp47, { onInterim } = {}) {
+  // Proactively request / verify device microphone permission
+  await requestMicrophonePermission();
+
   const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
   return new Promise((resolve, reject) => {
-    if (!SR) return reject(new Error('Voice input is not supported in this browser. Try Chrome or Edge.'));
+    if (!SR) {
+      return reject(new Error('Voice input is not supported in this browser. Please try Chrome or Edge.'));
+    }
     const rec = new SR();
     rec.lang = bcp47 || 'en-US';
     rec.interimResults = true;
@@ -216,7 +239,8 @@ export function listen(bcp47, { onInterim } = {}) {
         if (r.isFinal) finalText += r[0].transcript;
         else interim += r[0].transcript;
       }
-      onInterim?.(finalText || interim);
+      const currentText = finalText || interim;
+      onInterim?.(currentText);
     };
 
     rec.onerror = (e) => {
@@ -226,14 +250,13 @@ export function listen(bcp47, { onInterim } = {}) {
         return resolve('');
       }
       if (e.error === 'network') {
-        // Network/proxy hiccup reaching browser speech servers
-        console.warn('SpeechRecognition network error. Speech service temporarily unreachable.');
+        console.warn('SpeechRecognition network issue: speech service temporarily busy.');
         hasResolved = true;
-        return resolve('');
+        return resolve(finalText.trim());
       }
       if (e.error === 'not-allowed') {
         hasResolved = true;
-        return reject(new Error('Microphone permission was denied. Please allow microphone access in browser settings.'));
+        return reject(new Error('Microphone permission was denied. Please allow microphone access in your browser.'));
       }
       hasResolved = true;
       reject(new Error(`Voice input error: ${e.error}`));
