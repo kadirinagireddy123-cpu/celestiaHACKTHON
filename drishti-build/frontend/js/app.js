@@ -560,8 +560,12 @@ async function dictate(btn, input, then) {
   const old = input.placeholder; input.placeholder = 'Listening…';
   try {
     const t = await listen(lang().bcp47, { onInterim: (x) => (input.value = x) });
-    if (t) { input.value = t; then?.(t); } else toast('I did not hear anything.');
-  } catch (e) { toast(errMsg(e)); }
+    if (t) { input.value = t; then?.(t); } else toast('I did not hear anything. Try speaking again or type.');
+  } catch (e) {
+    if (!String(e).toLowerCase().includes('network')) {
+      toast(errMsg(e));
+    }
+  }
   finally { btn.classList.remove('listening'); btn.setAttribute('aria-pressed', 'false'); input.placeholder = old; }
 }
 const micVision = () => dictate($('btnMicPrompt'), $('userPrompt'), () => analyze());
@@ -673,6 +677,9 @@ function showTranscript(text) {
   if (t) t.textContent = text ? `“${text}”` : '';
 }
 
+let consecutiveSpeechErrors = 0;
+let speechRetryTimer = null;
+
 function initVoiceAssistant() {
   const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
   if (!SR) return;
@@ -681,9 +688,10 @@ function initVoiceAssistant() {
     continuousRec.continuous = true;
     continuousRec.interimResults = true;
     continuousRec.maxAlternatives = 1;
-    continuousRec.lang = lang().bcp47;
+    continuousRec.lang = lang().bcp47 || 'en-US';
 
     continuousRec.onstart = () => {
+      consecutiveSpeechErrors = 0;
       updateHud('🎙️ Voice Active · Listening for commands', true, false);
     };
 
@@ -704,17 +712,28 @@ function initVoiceAssistant() {
     };
 
     continuousRec.onerror = (e) => {
-      if (e.error !== 'no-speech' && e.error !== 'aborted') {
+      if (e.error === 'network') {
+        consecutiveSpeechErrors++;
+        console.warn('SpeechRecognition network issue (count:', consecutiveSpeechErrors, ')');
+      } else if (e.error !== 'no-speech' && e.error !== 'aborted') {
         console.warn('SpeechRecognition error:', e.error);
       }
     };
 
     continuousRec.onend = () => {
       if (voiceAssistantActive && !speaker.isSpeaking()) {
-        try {
-          continuousRec.lang = lang().bcp47;
-          continuousRec.start();
-        } catch {}
+        // Back off gently on network errors to avoid rapid loop
+        const delay = consecutiveSpeechErrors > 2 ? 3000 : 600;
+        clearTimeout(speechRetryTimer);
+        speechRetryTimer = setTimeout(() => {
+          if (voiceAssistantActive && !speaker.isSpeaking()) {
+            try {
+              // If regional tag has persistent network issues in browser, fallback to en-US for commands
+              continuousRec.lang = consecutiveSpeechErrors > 3 ? 'en-US' : (lang().bcp47 || 'en-US');
+              continuousRec.start();
+            } catch {}
+          }
+        }, delay);
       } else {
         updateHud('🎙️ Voice Standby', false, false);
       }
@@ -902,7 +921,9 @@ async function triggerVoiceInput() {
       updateHud('🎙️ Voice Active · Listening for commands', true, false);
     }
   } catch (err) {
-    toast(errMsg(err));
+    if (!err.message?.toLowerCase().includes('network')) {
+      toast(errMsg(err));
+    }
     updateHud('🎙️ Voice Active · Listening for commands', true, false);
   }
 }

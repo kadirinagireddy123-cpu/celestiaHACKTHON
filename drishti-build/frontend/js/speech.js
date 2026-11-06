@@ -203,11 +203,13 @@ export function listen(bcp47, { onInterim } = {}) {
   return new Promise((resolve, reject) => {
     if (!SR) return reject(new Error('Voice input is not supported in this browser. Try Chrome or Edge.'));
     const rec = new SR();
-    rec.lang = bcp47;
+    rec.lang = bcp47 || 'en-US';
     rec.interimResults = true;
     rec.maxAlternatives = 1;
     rec.continuous = false;
     let finalText = '';
+    let hasResolved = false;
+
     rec.onresult = (e) => {
       let interim = '';
       for (const r of e.results) {
@@ -216,11 +218,41 @@ export function listen(bcp47, { onInterim } = {}) {
       }
       onInterim?.(finalText || interim);
     };
+
     rec.onerror = (e) => {
-      if (e.error === 'no-speech' || e.error === 'aborted') return resolve('');
-      reject(new Error(e.error === 'not-allowed' ? 'Microphone permission was denied.' : `Voice input error: ${e.error}`));
+      if (hasResolved) return;
+      if (e.error === 'no-speech' || e.error === 'aborted') {
+        hasResolved = true;
+        return resolve('');
+      }
+      if (e.error === 'network') {
+        // Network/proxy hiccup reaching browser speech servers
+        console.warn('SpeechRecognition network error. Speech service temporarily unreachable.');
+        hasResolved = true;
+        return resolve('');
+      }
+      if (e.error === 'not-allowed') {
+        hasResolved = true;
+        return reject(new Error('Microphone permission was denied. Please allow microphone access in browser settings.'));
+      }
+      hasResolved = true;
+      reject(new Error(`Voice input error: ${e.error}`));
     };
-    rec.onend = () => resolve(finalText.trim());
-    try { rec.start(); } catch (e) { reject(e); }
+
+    rec.onend = () => {
+      if (!hasResolved) {
+        hasResolved = true;
+        resolve(finalText.trim());
+      }
+    };
+
+    try {
+      rec.start();
+    } catch (e) {
+      if (!hasResolved) {
+        hasResolved = true;
+        resolve('');
+      }
+    }
   });
 }
