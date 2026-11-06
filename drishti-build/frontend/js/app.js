@@ -194,11 +194,25 @@ const video = $('video'), still = $('still'), overlay = $('overlay'), stage = $(
 async function startCamera() {
   if (!navigator.mediaDevices?.getUserMedia) return toast('Camera is not available here. Use HTTPS or localhost, or upload a photo.');
   try {
-    state.stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: { ideal: 'environment' }, width: { ideal: 1280 }, height: { ideal: 720 } }, audio: false });
-    video.srcObject = state.stream; await video.play().catch(() => {});
+    let stream = null;
+    try {
+      stream = await navigator.mediaDevices.getUserMedia({
+        video: { facingMode: { ideal: 'environment' }, width: { ideal: 1280 }, height: { ideal: 720 } },
+        audio: false
+      });
+    } catch (e1) {
+      // Fallback for laptop webcams & desktops where environment facingMode fails
+      stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: false });
+    }
+    state.stream = stream;
+    video.muted = true;
+    video.playsInline = true;
+    video.srcObject = stream;
+    await video.play().catch(() => {});
     state.source = 'camera'; state.photoData = null;
     still.hidden = true; video.hidden = false; $('stageEmpty').hidden = true; $('btnStopCam').hidden = false;
-    video.addEventListener('loadedmetadata', fitStage, { once: true }); fitStage();
+    video.addEventListener('loadedmetadata', fitStage, { once: true });
+    fitStage();
     clearOverlay();
     say('Camera started', { force: true });
   } catch (e) {
