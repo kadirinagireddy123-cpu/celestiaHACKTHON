@@ -2,8 +2,19 @@ import { Api, ApiError, FALLBACK_LANGUAGES, FALLBACK_MODES } from './api.js';
 import { Speaker, listen, playChime, requestMicrophonePermission, recognitionSupported } from './speech.js';
 
 const $ = (id) => document.getElementById(id);
+function resolveApiBase() {
+  const host = (location.hostname || '').toLowerCase();
+  const isLocal = host === 'localhost' || host === '127.0.0.1' || host === '0.0.0.0' || host === '';
+  // When deployed to Vercel or any remote domain, ALWAYS use same-origin relative URLs
+  if (!isLocal) return '';
+  // When running locally on port 5000 (FastAPI unified server), also use relative URLs
+  if (location.port === '5000') return '';
+  // Only if running standalone frontend on a separate dev port (e.g. 8080 or 3000)
+  return 'http://localhost:5000';
+}
+
 const DEFAULTS = {
-  apiBase: location.port === '5000' ? '' : 'http://localhost:5000',
+  apiBase: resolveApiBase(),
   language: 'kn', mode: 'safety', engine: 'server', voice: 'neutral', rate: 1.0,
   autoSpeak: true, interval: 5, vibrate: true, quietClear: false, contrast: false, fontSize: 100,
 };
@@ -11,7 +22,14 @@ const store = {
   load() {
     try {
       const saved = JSON.parse(localStorage.getItem('drishti.prefs') || '{}');
-      return { ...DEFAULTS, ...saved, engine: 'server' };
+      const prefs = { ...DEFAULTS, ...saved, engine: 'server' };
+      const host = (location.hostname || '').toLowerCase();
+      const isLocal = host === 'localhost' || host === '127.0.0.1' || host === '0.0.0.0' || host === '';
+      // Sanitize: If deployed on Vercel or running on port 5000, never allow a stale localhost URL
+      if (!isLocal || (prefs.apiBase && prefs.apiBase.includes('localhost') && (location.port === '5000' || !location.port))) {
+        prefs.apiBase = '';
+      }
+      return prefs;
     } catch {
       return { ...DEFAULTS };
     }
