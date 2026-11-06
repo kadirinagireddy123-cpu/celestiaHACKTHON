@@ -593,12 +593,22 @@ async function dictate(btn, input, then) {
   speaker.stop();
   btn.classList.add('listening'); btn.setAttribute('aria-pressed', 'true');
   const old = input.placeholder;
-  input.placeholder = '🎙️ Listening… speak into your microphone';
+  input.placeholder = '🎙️ Listening… speak now';
+  input.value = '';
+  showTranscript('🎙️ Listening…');
+
+  // Detect HTTP on mobile → MediaRecorder path needs apiBase to call /api/transcribe
+  const apiBase = resolveApiBase();
+
   try {
     const t = await listen(lang().bcp47, {
+      apiBase,
       onInterim: (x) => {
-        input.value = x;
-        showTranscript(x);
+        if (x) {
+          input.value = x;
+          input.placeholder = x;   // show on placeholder too in case value not visible
+          showTranscript(x);
+        }
       }
     });
     if (t) {
@@ -607,19 +617,19 @@ async function dictate(btn, input, then) {
       playChime('success');
       then?.(t);
     } else {
-      toast('I did not hear anything. Try speaking again or type.');
+      input.value = '';
+      toast('I did not hear anything. Try speaking again or type your question.');
     }
   } catch (e) {
     toast(errMsg(e));
-  }
-  finally {
+  } finally {
     btn.classList.remove('listening');
     btn.setAttribute('aria-pressed', 'false');
     input.placeholder = old;
   }
 }
 const micVision = () => dictate($('btnMicPrompt'), $('userPrompt'), () => analyze());
-const micChat = () => dictate($('btnMicChat'), $('chatInput'), () => sendChat());
+const micChat   = () => dictate($('btnMicChat'),   $('chatInput'),   () => sendChat());
 
 /* ---------------------------------------------------------- chat */
 function addMsg(role, text, extra) {
@@ -965,13 +975,22 @@ async function triggerVoiceInput() {
   const chatInput = $('chatInput');
   const targetInput = !$('panel-chat').hidden ? chatInput : promptInput;
   const oldPlaceholder = targetInput ? targetInput.placeholder : '';
-  if (targetInput) targetInput.placeholder = '🎙️ Listening… speak into your microphone';
+  if (targetInput) {
+    targetInput.value = '';
+    targetInput.placeholder = '🎙️ Listening… speak now';
+  }
+
+  const apiBase = resolveApiBase();
 
   try {
     const text = await listen(lang().bcp47, {
+      apiBase,
       onInterim: (x) => {
         showTranscript(x);
-        if (targetInput) targetInput.value = x;
+        if (targetInput && x) {
+          targetInput.value = x;
+          targetInput.placeholder = x;
+        }
       }
     });
     if (text) {

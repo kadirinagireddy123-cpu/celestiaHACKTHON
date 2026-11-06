@@ -70,4 +70,7 @@ export class Api {
   tts({ text, language, voice }) {
     return this.#req('/api/tts', { method: 'POST', body: { text, language, voice }, timeout: 8000 });
   }
+  transcribe({ audio, mimeType, language }) {
+    return this.#req('/api/transcribe', { method: 'POST', body: { audio, mimeType, language }, timeout: 15000 });
+  }
 }

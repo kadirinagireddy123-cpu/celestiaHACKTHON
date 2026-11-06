@@ -6,7 +6,7 @@
       "destination": "/api/index"
     },
     {
-      "source": "/(health|languages|modes|vision-assist|chat|tts|docs|openapi.json|redoc)(.*)",
+      "source": "/(health|languages|modes|vision-assist|chat|tts|transcribe|docs|openapi.json|redoc)(.*)",
       "destination": "/api/index"
     }
   ]

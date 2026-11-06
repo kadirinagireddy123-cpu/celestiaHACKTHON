@@ -14,12 +14,14 @@ try:
     from .routes.chat_routes import router as chat_router
     from .routes.tts_routes import router as tts_router
     from .routes.info_routes import router as info_router
+    from .routes.transcribe_routes import router as transcribe_router
 except (ImportError, ValueError):
     from src.config.env import config
     from src.routes.vision_routes import router as vision_router
     from src.routes.chat_routes import router as chat_router
     from src.routes.tts_routes import router as tts_router
     from src.routes.info_routes import router as info_router
+    from src.routes.transcribe_routes import router as transcribe_router
 
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
@@ -65,12 +67,14 @@ def create_app() -> FastAPI:
     app.include_router(chat_router)
     app.include_router(tts_router)
     app.include_router(info_router)
+    app.include_router(transcribe_router)
 
     # Also mount under /api prefix for standard REST clients
     app.include_router(vision_router, prefix="/api")
     app.include_router(chat_router, prefix="/api")
     app.include_router(tts_router, prefix="/api")
     app.include_router(info_router, prefix="/api")
+    app.include_router(transcribe_router, prefix="/api")
 
     _frontend_dir = _BACKEND_DIR.parent / "frontend"
     if _frontend_dir.exists():

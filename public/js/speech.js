@@ -215,16 +215,92 @@ export async function requestMicrophonePermission() {
   }
 }
 
-// Real-time speech-to-text dictation with live interim stream and device mic authorization
-export async function listen(bcp47, { onInterim } = {}) {
+// ── MediaRecorder-based fallback (works on plain HTTP on mobile) ────────────
+// Records audio for up to maxMs ms, then sends to backend /api/transcribe.
+async function listenViaMediaRecorder(bcp47, { onInterim, apiBase = '' } = {}, maxMs = 6000) {
+  let stream;
+  try {
+    stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+  } catch (e) {
+    throw new Error('Microphone permission was denied. Please allow microphone access.');
+  }
+
+  onInterim?.('🎙️ Recording… speak now');
+
+  return new Promise((resolve, reject) => {
+    const chunks = [];
+    let mimeType = 'audio/webm';
+    if (!MediaRecorder.isTypeSupported(mimeType)) {
+      if (MediaRecorder.isTypeSupported('audio/ogg')) mimeType = 'audio/ogg';
+      else if (MediaRecorder.isTypeSupported('audio/mp4')) mimeType = 'audio/mp4';
+      else mimeType = '';
+    }
+
+    const opts = mimeType ? { mimeType } : {};
+    let rec;
+    try {
+      rec = new MediaRecorder(stream, opts);
+    } catch {
+      rec = new MediaRecorder(stream);
+      mimeType = rec.mimeType || 'audio/webm';
+    }
+
+    rec.ondataavailable = (e) => { if (e.data?.size) chunks.push(e.data); };
+
+    rec.onstop = async () => {
+      stream.getTracks().forEach((t) => t.stop());
+      if (!chunks.length) return resolve('');
+
+      onInterim?.('⌛ Transcribing…');
+
+      try {
+        const blob = new Blob(chunks, { type: mimeType || 'audio/webm' });
+        const ab = await blob.arrayBuffer();
+        const bytes = new Uint8Array(ab);
+        // convert to base64
+        let binary = '';
+        for (let i = 0; i < bytes.byteLength; i++) binary += String.fromCharCode(bytes[i]);
+        const b64 = btoa(binary);
+
+        const resp = await fetch((apiBase || '') + '/api/transcribe', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ audio: b64, mimeType: mimeType || 'audio/webm', language: bcp47 || 'en-US' }),
+        });
+        if (!resp.ok) throw new Error(`Server error ${resp.status}`);
+        const data = await resp.json();
+        const transcript = data?.transcript || '';
+        onInterim?.(transcript || '');
+        resolve(transcript.trim());
+      } catch (e) {
+        console.warn('MediaRecorder transcription failed:', e);
+        resolve('');
+      }
+    };
+
+    rec.onerror = () => { stream.getTracks().forEach((t) => t.stop()); resolve(''); };
+
+    rec.start();
+    setTimeout(() => { try { rec.stop(); } catch {} }, maxMs);
+  });
+}
+
+// ── Main listen() — tries Web Speech API first, falls back to MediaRecorder ─
+export async function listen(bcp47, { onInterim, apiBase = '' } = {}) {
   // Proactively request / verify device microphone permission
   await requestMicrophonePermission();
 
   const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+
+  // On mobile HTTP, Web Speech API throws "network" immediately.
+  // Detect HTTP + mobile: skip directly to MediaRecorder.
+  const isHttp = location.protocol === 'http:';
+  const isMobile = /Android|iPhone|iPad|iPod/i.test(navigator.userAgent);
+  if (!SR || (isHttp && isMobile)) {
+    return listenViaMediaRecorder(bcp47, { onInterim, apiBase });
+  }
+
   return new Promise((resolve, reject) => {
-    if (!SR) {
-      return reject(new Error('Voice input is not supported in this browser. Please try Chrome or Edge.'));
-    }
     const rec = new SR();
     rec.lang = bcp47 || 'en-US';
     rec.interimResults = true;
@@ -232,6 +308,7 @@ export async function listen(bcp47, { onInterim } = {}) {
     rec.continuous = false;
     let finalText = '';
     let hasResolved = false;
+    let networkFailed = false;
 
     rec.onresult = (e) => {
       let interim = '';
@@ -243,16 +320,24 @@ export async function listen(bcp47, { onInterim } = {}) {
       onInterim?.(currentText);
     };
 
-    rec.onerror = (e) => {
+    rec.onerror = async (e) => {
       if (hasResolved) return;
       if (e.error === 'no-speech' || e.error === 'aborted') {
         hasResolved = true;
         return resolve('');
       }
       if (e.error === 'network') {
-        console.warn('SpeechRecognition network issue: speech service temporarily busy.');
+        // Fall back to MediaRecorder → backend transcription
+        console.warn('SpeechRecognition: network error — switching to MediaRecorder fallback');
+        networkFailed = true;
         hasResolved = true;
-        return resolve(finalText.trim());
+        try {
+          const t = await listenViaMediaRecorder(bcp47, { onInterim, apiBase });
+          resolve(t);
+        } catch (err) {
+          resolve('');
+        }
+        return;
       }
       if (e.error === 'not-allowed') {
         hasResolved = true;
@@ -263,7 +348,7 @@ export async function listen(bcp47, { onInterim } = {}) {
     };
 
     rec.onend = () => {
-      if (!hasResolved) {
+      if (!hasResolved && !networkFailed) {
         hasResolved = true;
         resolve(finalText.trim());
       }
