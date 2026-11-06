@@ -233,6 +233,23 @@ output{color:var(--accent);margin-left:.4rem}
   border-radius: 4px;
 }
 
+.voice-test-btn {
+  padding: 0.35rem 0.8rem;
+  font-size: 0.85rem;
+  min-height: 36px;
+  background: var(--panel2);
+  border-color: var(--accent);
+  color: var(--accent);
+  border-radius: 99px;
+  font-weight: 700;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+.voice-test-btn:hover {
+  background: var(--accent);
+  color: var(--accent-ink);
+}
+
 /* ============================================================
    VOICE-FIRST / HANDS-FREE ASSISTANT INTERFACE
    ============================================================ */

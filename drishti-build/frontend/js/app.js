@@ -4,11 +4,18 @@ import { Speaker, listen, playChime, recognitionSupported } from './speech.js';
 const $ = (id) => document.getElementById(id);
 const DEFAULTS = {
   apiBase: location.port === '5000' ? '' : 'http://localhost:5000',
-  language: 'en', mode: 'safety', engine: 'device', voice: 'neutral', rate: 1.05,
+  language: 'kn', mode: 'safety', engine: 'server', voice: 'neutral', rate: 1.0,
   autoSpeak: true, interval: 5, vibrate: true, quietClear: false, contrast: false, fontSize: 100,
 };
 const store = {
-  load() { try { return { ...DEFAULTS, ...JSON.parse(localStorage.getItem('drishti.prefs') || '{}') }; } catch { return { ...DEFAULTS }; } },
+  load() {
+    try {
+      const saved = JSON.parse(localStorage.getItem('drishti.prefs') || '{}');
+      return { ...DEFAULTS, ...saved, engine: 'server' };
+    } catch {
+      return { ...DEFAULTS };
+    }
+  },
   save(p) { try { localStorage.setItem('drishti.prefs', JSON.stringify(p)); } catch {} },
 };
 
@@ -108,7 +115,35 @@ function renderLanguages() {
   for (const l of state.languages) sel.append(el('option', { value: l.code, text: l.name === l.native ? l.name : `${l.name} — ${l.native}` }));
   sel.value = state.prefs.language;
 }
-$('language').addEventListener('change', (e) => { state.prefs.language = e.target.value; persist(); applyDisplay(); });
+const TEST_PHRASES = {
+  kn: "ದೃಷ್ಟಿ ಧ್ವನಿ ಸಕ್ರಿಯವಾಗಿದೆ. ಸುರಕ್ಷತಾ ಮಾರ್ಗ ಸ್ಪಷ್ಟವಾಗಿದೆ.",
+  hi: "दृष्टि वॉयस सक्रिय है। रास्ता साफ़ है।",
+  te: "దృష్టి వాయిస్ ప్రారంభమైంది. దారి స్పష్టంగా ఉంది.",
+  ta: "திருஷ்டி குரல் இயங்குகிறது. பாதை தெளிவாக உள்ளது.",
+  en: "Drishti voice is active. Path is clear.",
+};
+
+function testCurrentLanguageVoice() {
+  const currentLang = state.prefs.language || 'kn';
+  const phrase = TEST_PHRASES[currentLang] || TEST_PHRASES.en;
+  playChime('success');
+  say(phrase, { force: true });
+}
+
+$('language').addEventListener('change', (e) => {
+  state.prefs.language = e.target.value;
+  persist();
+  applyDisplay();
+  const confirmationPhrases = {
+    kn: "ಕನ್ನಡ ಭಾಷೆಯನ್ನು ಆಯ್ಕೆ ಮಾಡಲಾಗಿದೆ.",
+    hi: "हिंदी भाषा चुनी गई है।",
+    te: "తెలుగు భాష ఎంపిక చేయబడింది.",
+    ta: "தமிழ் மொழி தேர்ந்தெடுக்கப்பட்டது.",
+    en: "English language selected.",
+  };
+  const msg = confirmationPhrases[e.target.value] || `Selected ${e.target.value}`;
+  say(msg, { force: true });
+});
 
 function renderModes() {
   const g = $('modes'); g.replaceChildren();
@@ -913,10 +948,11 @@ document.addEventListener('keydown', (e) => {
   }
 });
 
-// Floating Voice Button & Overlay Button
+// Floating Voice Button & Overlay Button & Header Test Voice Button
 $('btnStartVoiceMode')?.addEventListener('click', (e) => { e.stopPropagation(); startVoiceNavigation(); });
 $('voiceTapBanner')?.addEventListener('click', (e) => { e.stopPropagation(); startVoiceNavigation(); });
 $('btnVoiceFloat')?.addEventListener('click', (e) => { e.stopPropagation(); triggerVoiceInput(); });
+$('btnHeaderTestVoice')?.addEventListener('click', (e) => { e.stopPropagation(); testCurrentLanguageVoice(); });
 
 bindSettings(); applyDisplay(); renderLanguages(); renderModes(); installDetectionSummary(); updateWalkState(); showTab('vision'); refreshServerInfo();
 if ('speechSynthesis' in window) speechSynthesis.getVoices();
