@@ -4,7 +4,7 @@ import sys
 import base64
 import logging
 from pathlib import Path
-from typing import Optional
+from typing import Optional, Dict
 from pydantic import BaseModel, Field
 
 _BACKEND_DIR = Path(__file__).resolve().parent.parent.parent
@@ -17,6 +17,23 @@ except (ImportError, ValueError):
     from src.config.languages import get_language_metadata
 
 logger = logging.getLogger("drishti.tts")
+
+# ISO 639-1 language code lookup dictionary
+LANGUAGE_CODES: Dict[str, str] = {
+    "english": "en",
+    "kannada": "kn",
+    "hindi": "hi",
+    "telugu": "te",
+    "tamil": "ta",
+    "marathi": "mr",
+    "bengali": "bn",
+    "gujarati": "gu",
+    "malayalam": "ml",
+    "spanish": "es",
+    "french": "fr",
+    "german": "de",
+    "japanese": "ja"
+}
 
 class SpeechConfig(BaseModel):
     text: str
@@ -37,7 +54,7 @@ class TTSResult(BaseModel):
 
 class TTSRequest(BaseModel):
     text: str = Field(..., description="Text string to synthesize")
-    language: str = Field("en", description="Target language code (e.g. 'kn', 'hi', 'te', 'ta', 'en')")
+    language: str = Field("en", description="Target language code or name (e.g. 'kannada', 'kn', 'hindi', 'hi', 'en')")
     voice: Optional[str] = Field("neutral", description="Voice profile ('neutral', 'female', 'male')")
 
 class TTSResponse(BaseModel):
@@ -45,20 +62,32 @@ class TTSResponse(BaseModel):
     timestamp: str
     data: TTSResult
 
-def generate_multilingual_audio(text: str, lang_code: str = "en", filename: str = "output.mp3") -> Optional[str]:
+def generate_speech_file(text_to_speak: str, language_name: str = "english", output_file: str = "alert_output.mp3") -> str:
     """
-    Generates an audio file in the specified language using gTTS.
-    lang_code examples: 'kn' for Kannada, 'hi' for Hindi, 'te' for Telugu, 'en' for English
+    Converts text to speech in the requested target language and saves to MP3 file.
+    
+    :param text_to_speak: The translated output string from your model.
+    :param language_name: Key corresponding to the selected language (e.g. 'kannada', 'kn', 'japanese', 'ja').
+    :param output_file: File path where MP3 should be saved.
+    :return: Path to the generated audio file or empty string on failure.
     """
+    lang_key = (language_name or "english").lower().strip()
+    lang_code = LANGUAGE_CODES.get(lang_key, lang_key.split("-")[0] if len(lang_key) <= 3 else "en")
+    
     try:
         from gtts import gTTS
-        tts = gTTS(text=text, lang=lang_code, slow=False)
-        tts.save(filename)
-        logger.info(f"Generated multilingual audio file saved to {filename}")
-        return filename
+        tts = gTTS(text=text_to_speak, lang=lang_code, slow=False)
+        tts.save(output_file)
+        logger.info(f"Generated TTS audio file: {output_file} (lang: {lang_code})")
+        return output_file
     except Exception as e:
-        logger.warning(f"Error generating speech file: {e}")
-        return None
+        logger.warning(f"Failed to generate TTS audio: {e}")
+        return ""
+
+def generate_multilingual_audio(text: str, lang_code: str = "en", filename: str = "output.mp3") -> Optional[str]:
+    """Generates an audio file in the specified language using gTTS."""
+    res = generate_speech_file(text_to_speak=text, language_name=lang_code, output_file=filename)
+    return res if res else None
 
 def generate_multilingual_bytes(text: str, lang_code: str = "en") -> Optional[bytes]:
     """
@@ -66,8 +95,9 @@ def generate_multilingual_bytes(text: str, lang_code: str = "en") -> Optional[by
     """
     try:
         from gtts import gTTS
-        clean_code = (lang_code or "en").lower().split("-")[0]
-        tts = gTTS(text=text, lang=clean_code, slow=False)
+        clean_key = (lang_code or "en").lower().strip()
+        code = LANGUAGE_CODES.get(clean_key, clean_key.split("-")[0])
+        tts = gTTS(text=text, lang=code, slow=False)
         fp = io.BytesIO()
         tts.write_to_fp(fp)
         fp.seek(0)
@@ -80,8 +110,9 @@ def generate_speech(text: str, language: str = "en", voice: str = "neutral") -> 
     if not text:
         raise ValueError("Text parameter is required for TTS")
 
-    lang_meta = get_language_metadata(language)
-    lang_code = lang_meta.get("code", "en").lower().split("-")[0]
+    lang_clean = (language or "en").lower().strip()
+    lang_code = LANGUAGE_CODES.get(lang_clean, lang_clean.split("-")[0])
+    lang_meta = get_language_metadata(lang_code)
 
     fallback_speech_config = SpeechConfig(
         text=text,
@@ -97,7 +128,7 @@ def generate_speech(text: str, language: str = "en", voice: str = "neutral") -> 
         audio_b64 = base64.b64encode(audio_bytes).decode("utf-8")
         return TTSResult(
             text=text,
-            language=lang_meta["code"],
+            language=lang_code,
             bcp47=lang_meta["bcp47"],
             audioData=audio_b64,
             audioMimeType="audio/mp3",
