@@ -117,3 +117,4 @@ async def transcribe_audio(payload: TranscribeRequest):
     except Exception as e:
         logger.error(f"Transcription error: {e}")
         raise HTTPException(status_code=500, detail=f"Transcription failed: {str(e)}")
+
